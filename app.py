@@ -1,73 +1,25 @@
 import streamlit as st
 from pptx import Presentation
-from pptx.util import Pt
+from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import PP_ALIGN
 from io import BytesIO
 import os
 
 # ==========================================
-# 1. 定義五種風格參數
+# 1. 核心邏輯：提取內容
 # ==========================================
-STYLES = {
-    "minimalist": {
-        "name": "極簡白 (Minimalist)",
-        "desc": "適合正式商務、學術報告。白底深藍字，強調專業感。",
-        "bg_color": RGBColor(255, 255, 255),
-        "title_color": RGBColor(0, 51, 102),
-        "text_color": RGBColor(60, 60, 60),
-        "font_bold": True
-    },
-    "cyberpunk": {
-        "name": "賽博龐克 (Cyberpunk)",
-        "desc": "適合黑客松、科技 Demo。深黑底配霓虹綠，未來感強烈。",
-        "bg_color": RGBColor(20, 20, 25),
-        "title_color": RGBColor(0, 255, 150),
-        "text_color": RGBColor(240, 240, 240),
-        "font_bold": True
-    },
-    "warm_paper": {
-        "name": "溫暖紙質感 (Warm Paper)",
-        "desc": "適合人文、閱讀類主題。米色背景配深褐字，閱讀舒適。",
-        "bg_color": RGBColor(250, 245, 230),
-        "title_color": RGBColor(101, 67, 33),
-        "text_color": RGBColor(80, 50, 20),
-        "font_bold": False
-    },
-    "dark_luxury": {
-        "name": "暗夜奢華 (Dark Luxury)",
-        "desc": "適合高端產品介紹。黑底配金字，展現高級感。",
-        "bg_color": RGBColor(0, 0, 0),
-        "title_color": RGBColor(212, 175, 55),
-        "text_color": RGBColor(200, 200, 200),
-        "font_bold": True
-    },
-    "corporate_blue": {
-        "name": "穩重藍調 (Corporate Blue)",
-        "desc": "適合傳統企業內部報告。全藍背景配白字，穩重不失誤。",
-        "bg_color": RGBColor(44, 62, 80),
-        "title_color": RGBColor(255, 255, 255),
-        "text_color": RGBColor(236, 240, 241),
-        "font_bold": True
-    }
-}
-
-# ==========================================
-# 2. 核心邏輯函數
-# ==========================================
-
 def extract_content_from_pptx(file_obj):
-    """從上傳的檔案物件或路徑提取內容"""
     prs = Presentation(file_obj)
     extracted_data = []
 
     for slide in prs.slides:
         slide_content = {"title": "", "content": ""}
         
-        # 抓取標題
         if slide.shapes.title and slide.shapes.title.has_text_frame:
             slide_content["title"] = slide.shapes.title.text_frame.text
         
-        # 抓取內文
         for shape in slide.placeholders:
             if shape.placeholder_format.idx == 1 and shape.has_text_frame:
                 slide_content["content"] = shape.text_frame.text
@@ -75,40 +27,133 @@ def extract_content_from_pptx(file_obj):
         
         if slide_content["title"] or slide_content["content"]:
             extracted_data.append(slide_content)
-            
     return extracted_data
 
-def create_styled_pptx(data, style_key):
-    """根據指定的 style_key 生成 PPT"""
+# ==========================================
+# 2. 進階樣式生成邏輯 (包含繪圖與排版)
+# ==========================================
+def create_styled_pptx(data, style_mode):
     prs = Presentation()
-    style_config = STYLES[style_key]
-    
+    # 設定投影片大小為寬螢幕 16:9 (13.33 x 7.5 inches)
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
     for item in data:
-        slide_layout = prs.slide_layouts[1]
+        # 使用空白版型 (Layout 6)，讓我們完全控制位置
+        slide_layout = prs.slide_layouts[6] 
         slide = prs.slides.add_slide(slide_layout)
+        shapes = slide.shapes
 
-        # 設定背景
-        background = slide.background
-        fill = background.fill
-        fill.solid()
-        fill.fore_color.rgb = style_config["bg_color"]
+        # -----------------------------------------------
+        # 風格 A: 現代側邊欄 (Modern Sidebar)
+        # 特色：左側 1/4 是深色色塊，右側是內容
+        # -----------------------------------------------
+        if style_mode == "sidebar":
+            # 1. 畫左側色塊 (深藍)
+            sidebar = shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, 
+                Inches(0), Inches(0), Inches(3.5), Inches(7.5) # x, y, w, h
+            )
+            sidebar.fill.solid()
+            sidebar.fill.fore_color.rgb = RGBColor(44, 62, 80)
+            sidebar.line.fill.background() # 去除邊框
 
-        # 設定標題
-        title = slide.shapes.title
-        title.text = item["title"]
-        for paragraph in title.text_frame.paragraphs:
-            paragraph.font.color.rgb = style_config["title_color"]
-            paragraph.font.bold = style_config["font_bold"]
-            paragraph.font.name = "Arial"
+            # 2. 新增標題 (在右側白底區)
+            title_box = shapes.add_textbox(Inches(4), Inches(0.5), Inches(8.5), Inches(1.5))
+            tf = title_box.text_frame
+            tf.text = item["title"]
+            p = tf.paragraphs[0]
+            p.font.size = Pt(40)
+            p.font.bold = True
+            p.font.color.rgb = RGBColor(44, 62, 80)
+            p.font.name = "Arial Black"
 
-        # 設定內文
-        if len(slide.placeholders) > 1:
-            body = slide.placeholders[1]
-            body.text = item["content"]
-            for paragraph in body.text_frame.paragraphs:
-                paragraph.font.color.rgb = style_config["text_color"]
-                paragraph.font.size = Pt(20)
-                paragraph.font.name = "Arial"
+            # 3. 新增內文 (在右側)
+            content_box = shapes.add_textbox(Inches(4), Inches(2), Inches(8.5), Inches(5))
+            tf_body = content_box.text_frame
+            tf_body.text = item["content"]
+            tf_body.word_wrap = True
+            for p in tf_body.paragraphs:
+                p.font.size = Pt(20)
+                p.font.color.rgb = RGBColor(80, 80, 80)
+                p.space_after = Pt(10)
+
+        # -----------------------------------------------
+        # 風格 B: 科技邊框 (Cyberpunk HUD)
+        # 特色：黑底、霓虹綠、上下有裝飾線條
+        # -----------------------------------------------
+        elif style_mode == "cyberpunk":
+            # 1. 設定全黑背景
+            background = slide.background
+            fill = background.fill
+            fill.solid()
+            fill.fore_color.rgb = RGBColor(10, 10, 15)
+
+            # 2. 畫頂部裝飾條 (霓虹綠)
+            bar = shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, 
+                Inches(0.5), Inches(1.2), Inches(12.33), Inches(0.05)
+            )
+            bar.fill.solid()
+            bar.fill.fore_color.rgb = RGBColor(0, 255, 127)
+            bar.line.fill.background()
+
+            # 3. 標題
+            title_box = shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(12), Inches(1))
+            tf = title_box.text_frame
+            tf.text = item["title"]
+            p = tf.paragraphs[0]
+            p.font.size = Pt(36)
+            p.font.bold = True
+            p.font.color.rgb = RGBColor(0, 255, 127) # 霓虹綠
+            p.font.name = "Consolas" # 等寬字體更有科技感
+
+            # 4. 內文
+            content_box = shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(12), Inches(5.5))
+            tf_body = content_box.text_frame
+            tf_body.text = item["content"]
+            tf_body.word_wrap = True
+            for p in tf_body.paragraphs:
+                p.font.size = Pt(20)
+                p.font.color.rgb = RGBColor(220, 220, 220)
+                p.font.name = "Consolas"
+
+        # -----------------------------------------------
+        # 風格 C: 優雅底線 (Elegant Line)
+        # 特色：置中對齊、標題下方有短線、襯線字體
+        # -----------------------------------------------
+        elif style_mode == "elegant":
+            # 背景預設白
+
+            # 1. 標題 (置中)
+            title_box = shapes.add_textbox(Inches(1), Inches(1), Inches(11.33), Inches(1))
+            tf = title_box.text_frame
+            tf.text = item["title"]
+            p = tf.paragraphs[0]
+            p.alignment = PP_ALIGN.CENTER
+            p.font.size = Pt(44)
+            p.font.color.rgb = RGBColor(100, 100, 100) # 質感灰
+            p.font.name = "Georgia" # 襯線字體
+
+            # 2. 裝飾短線 (金色，畫在標題下方中央)
+            line = shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, 
+                Inches(6.16), Inches(2.2), Inches(1), Inches(0.05) # 置中計算
+            )
+            line.fill.solid()
+            line.fill.fore_color.rgb = RGBColor(184, 134, 11) # 金色
+            line.line.fill.background()
+
+            # 3. 內文 (置中或靠左視內容而定，這裡設靠左但版面縮進)
+            content_box = shapes.add_textbox(Inches(2), Inches(3), Inches(9.33), Inches(4))
+            tf_body = content_box.text_frame
+            tf_body.text = item["content"]
+            tf_body.word_wrap = True
+            for p in tf_body.paragraphs:
+                p.alignment = PP_ALIGN.CENTER
+                p.font.size = Pt(22)
+                p.font.color.rgb = RGBColor(60, 60, 60)
+                p.font.name = "Georgia"
 
     output = BytesIO()
     prs.save(output)
@@ -116,81 +161,72 @@ def create_styled_pptx(data, style_key):
     return output
 
 # ==========================================
-# 3. Streamlit 介面
+# 3. Streamlit UI
 # ==========================================
-st.set_page_config(page_title="AI PPT 風格重塑", layout="wide", page_icon="📊")
+st.set_page_config(page_title="AI PPT 進階重設計", layout="wide", page_icon="🎨")
 
-st.title("📊 HW 5-3: AI PPT 風格自動重塑系統")
+st.title("🎨 HW 5-3: AI PPT 進階版型重構")
 st.markdown("""
-本工具使用 **Python-pptx** 自動化技術，將您的簡報內容提取後，重新注入 **5 種不同的設計風格**。
+本系統不只替換顏色，更會使用 **Python 幾何繪圖** 重新定義版面結構。
 """)
-
 st.divider()
 
-# --- 側邊欄或主要區域：選擇來源 ---
-col1, col2 = st.columns([1, 1], gap="large")
-
-content_data = None
-current_source_name = ""
-
-with col1:
-    st.subheader("方式 A：上傳您的檔案")
-    uploaded_file = st.file_uploader("請上傳 PPTX 檔案", type="pptx")
-
-with col2:
-    st.subheader("方式 B：使用測試範例")
-    st.write("手邊沒有簡報？直接載入範例試試看！")
-    use_sample = st.button("📂 載入範例簡報 (sample.pptx)", use_container_width=True)
-
-# --- 處理邏輯 ---
-try:
-    if uploaded_file is not None:
-        content_data = extract_content_from_pptx(uploaded_file)
-        current_source_name = uploaded_file.name
-        
-    elif use_sample:
-        sample_path = "sample_presentation.pptx"
-        if os.path.exists(sample_path):
-            content_data = extract_content_from_pptx(sample_path)
-            current_source_name = "sample_presentation.pptx"
-            st.session_state['use_sample_active'] = True # 保持狀態
-        else:
-            st.error("⚠️ 找不到範例檔案，請確認 sample_presentation.pptx 是否在 Github 倉庫中。")
+# 側邊欄控制
+with st.sidebar:
+    st.header("1. 資料來源")
+    uploaded_file = st.file_uploader("上傳 PPTX", type="pptx")
+    use_sample = st.button("或是：載入範例簡報")
     
-    # 為了讓「使用範例」在點擊下載按鈕後不消失，可以使用 session_state (選用，簡單版可略過)
-    # 如果使用者剛剛點過範例，且沒有上傳新檔案，就維持範例資料
-    if content_data is None and st.session_state.get('use_sample_active') and uploaded_file is None:
-        sample_path = "sample_presentation.pptx"
-        if os.path.exists(sample_path):
-            content_data = extract_content_from_pptx(sample_path)
-            current_source_name = "sample_presentation.pptx"
+    st.divider()
+    st.info("💡 提示：Cyberpunk 風格會將字體改為等寬字，適合程式碼展示。")
 
-    # --- 顯示結果區 ---
-    if content_data:
-        st.divider()
-        st.success(f"✅ 已成功載入：**{current_source_name}** (共 {len(content_data)} 頁)")
-        st.caption("請從下方選擇喜歡的風格下載：")
+# 邏輯處理
+content_data = None
+source_name = ""
 
-        # 顯示五種風格下載選項 (Grid 排版)
-        grid_cols = st.columns(2) 
-        
-        for index, (key, config) in enumerate(STYLES.items()):
-            col = grid_cols[index % 2]
-            with col:
-                with st.container(border=True):
-                    st.subheader(config["name"])
-                    st.caption(config["desc"])
-                    
-                    # 生成 PPT
-                    ppt_file = create_styled_pptx(content_data, key)
-                    
-                    st.download_button(
-                        label=f"⬇️ 下載 {config['name']}",
-                        data=ppt_file,
-                        file_name=f"redesigned_{key}.pptx",
-                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                        use_container_width=True
-                    )
-                    
-except Exception as e:
-    st.error(f"系統發生錯誤：{e}")
+if uploaded_file:
+    content_data = extract_content_from_pptx(uploaded_file)
+    source_name = uploaded_file.name
+elif use_sample:
+    # 確保你有上傳 sample_presentation.pptx 到 github
+    if os.path.exists("sample_presentation.pptx"):
+        content_data = extract_content_from_pptx("sample_presentation.pptx")
+        source_name = "範例簡報"
+    else:
+        st.error("找不到 sample_presentation.pptx")
+
+# 顯示結果
+if content_data:
+    st.subheader(f"✅ 專案來源：{source_name}")
+    st.write(f"已提取 {len(content_data)} 頁內容，請選擇版型進行重構：")
+    
+    # 三欄展示三種風格
+    col1, col2, col3 = st.columns(3)
+
+    # Style A
+    with col1:
+        st.container(border=True)
+        st.markdown("### 🏢 現代側邊欄")
+        st.caption("雜誌風格排版，左側具備視覺引導色塊。")
+        ppt_a = create_styled_pptx(content_data, "sidebar")
+        st.download_button("下載 Style A", ppt_a, "style_sidebar.pptx")
+
+    # Style B
+    with col2:
+        st.container(border=True)
+        st.markdown("### 👾 賽博科技 HUD")
+        st.caption("深色模式，搭配裝飾性線條與等寬字體。")
+        ppt_b = create_styled_pptx(content_data, "cyberpunk")
+        st.download_button("下載 Style B", ppt_b, "style_cyberpunk.pptx")
+
+    # Style C
+    with col3:
+        st.container(border=True)
+        st.markdown("### ✒️ 優雅襯線")
+        st.caption("大量留白與中央裝飾線，適合高端展示。")
+        ppt_c = create_styled_pptx(content_data, "elegant")
+        st.download_button("下載 Style C", ppt_c, "style_elegant.pptx")
+
+else:
+    if not uploaded_file and not use_sample:
+        st.info("👈 請從左側開始")
